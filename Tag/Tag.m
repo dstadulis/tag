@@ -98,6 +98,9 @@ static void Printf(NSString* fmt, ...)
         case OperationModeFind:
             result = OutputFlagsName;
             break;
+        case OperationModeInvertFind:
+            result = OutputFlagsName;
+            break;
         case OperationModeList:
             result = OutputFlagsName | OutputFlagsTags;
             break;
@@ -124,6 +127,7 @@ typedef NS_ENUM(int, CommandCode) {
         { "remove",     required_argument,      0,              OperationModeRemove },
         { "match",      required_argument,      0,              OperationModeMatch },
         { "find",       required_argument,      0,              OperationModeFind },
+        { "invert-find",required_argument,      0,              OperationModeInvertFind },
         { "usage",      optional_argument,      0,              OperationModeUsage },
 
         { "list",       no_argument,            0,              OperationModeList },
@@ -182,7 +186,7 @@ typedef NS_ENUM(int, CommandCode) {
     // Parse Options
     int option_char;
     int option_index;
-    while ((option_char = getopt_long(argc, argv, "s:a:r:m:f:u::lAeRdnNtTgGcp0hv", options, &option_index)) != -1)
+    while ((option_char = getopt_long(argc, argv, "s:a:r:m:f:F:u::lAeRdnNtTgGcp0hv", options, &option_index)) != -1)
     {
         switch (option_char)
         {
@@ -191,6 +195,7 @@ typedef NS_ENUM(int, CommandCode) {
             case OperationModeRemove:
             case OperationModeMatch:
             case OperationModeFind:
+            case OperationModeInvertFind:
             case OperationModeUsage:
             case OperationModeList:
             {
@@ -501,6 +506,10 @@ typedef NS_ENUM(int, CommandCode) {
             
         case OperationModeFind:
             [self doFind];
+            break;
+
+        case OperationModeInvertFind:
+            [self doInvertFind];
             break;
 
         case OperationModeUsage:
@@ -855,6 +864,10 @@ typedef NS_ENUM(int, CommandCode) {
     [self findGutsWithUsage:NO];
 }
 
+- (void)doInvertFind
+{
+    [self findFilesWithoutTagWithUsage:NO];
+}
 
 - (void)doUsage
 {
@@ -891,6 +904,53 @@ typedef NS_ENUM(int, CommandCode) {
                     NSArray* tagArray = [theResult valueForAttribute:kMDItemUserTags];
                     
                     [self emitURL:URL tags:tagArray];
+                }
+            }
+        }];
+    }
+}
+
+
+- (void)findFilesWithoutTagWithUsage:(BOOL)usageMode
+{
+    // Start a metadata search for files not containing any of the given tags
+    NSMetadataQuery* metadataQuery = [self performMetadataSearchForTags:nil usageMode:usageMode];
+
+    // Emit the results of the query, either for tags or for usage
+    if (usageMode)
+    {
+        // Print the statistics, ignoring the general query results
+        NSDictionary* valueLists = [metadataQuery valueLists];
+        NSArray* tagTuples = valueLists[kMDItemUserTags];
+        for (NSMetadataQueryAttributeValueTuple* tuple in tagTuples)
+        {
+            NSString* tag = (tuple.value == [NSNull null]) ? @"<no_tag>" : tuple.value;
+            Printf(@"%ld\t%@\n", (long)tuple.count, [self displayStringForTag:tag]);
+        }
+    }
+    else
+    {
+        // Print the query results
+        [metadataQuery enumerateResultsUsingBlock:^(NSMetadataItem* theResult, NSUInteger idx, BOOL * _Nonnull stop) {
+            @autoreleasepool {
+                NSString* path = [theResult valueForAttribute:(NSString *)kMDItemPath];
+                if (path)
+                {
+                    NSURL* URL = [NSURL fileURLWithPath:path];
+                    NSArray* tagArray = [theResult valueForAttribute:kMDItemUserTags];
+
+                    // Check if the file does not contain any of the tags
+                    BOOL containsTag = NO;
+                    for (NSString* tag in self.tags) {
+                        if ([tagArray containsObject:tag]) {
+                            containsTag = YES;
+                            break;
+                        }
+                    }
+
+                    if (!containsTag) {
+                        [self emitURL:URL tags:nil];
+                    }
                 }
             }
         }];
